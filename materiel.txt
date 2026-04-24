@@ -1,0 +1,28 @@
+Thermostat :
+- 1 thermostat d'ambiance 12V permetant le controle de ventilateur/turbine ou propulseur d'aire
+- 1 ESP32 CH340C 30P TYPE C + Epansion Board 30P
+- Carte d'isolation optocoupleur PC817 minimum 5 canaux, Module adaptateur de convertisseur de tension, pilote 3.6-30V, Module isolé photoélectrique
+- 1 interrupteur avec led
+
+Chauffage péttrole :
+- Carte de développement Wifi Bluetooth ESP32-32E, Module de commutation 2 MOS ou 2 relais DC 5-60V
+
+Chauffage Gaz :
+- Carte de développement Wifi Bluetooth ESP32-32E, Module de commutation 2 MOS ou 2 relais DC 5-60V
+- Module ADS1115 16 bits ADC
+- Électrovanne électrique pneumatique 12V
+
+Jauges :
+- 1 ESP32 CH340C 30P TYPE C + Epansion Board 30P
+- 1 Capteur de tension électronique intelligent DC 0-25V
+- 4 Capteur de pesage à demi-pont, cellule de charge 50kg
+- 4 Capteur de niveau d'eau sans contact
+
+Les appareils peuvent travaillent ensemble, mais peuvent fonctionner :
+- hors reseau extérieur (sans interface pas facile mais faisable).
+- connecté à un wifi extérieur, via le modul-thermostat qui devient le cerveau de fonctionnement et transmet les information sur carsadventures.fr pour l'acces à l'interface.
+
+>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<<
+>      SERVICES DE CARSADVENTURES.FR GRATUIT     < 
+>   Accès à l'interface sans publicité compris   <
+>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<<
