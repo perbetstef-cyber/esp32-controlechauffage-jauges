@@ -1,19 +1,19 @@
-#include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266HTTPClient.h>
-#include <ESP8266mDNS.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <HTTPClient.h>
+#include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
-#include <Adafruit_ADS1X15.h> // À installer via le gestionnaire de bibliothèques
+#include <Adafruit_ADS1X15.h>
 
 // --- CONFIGURATION ---
-const char* ssid = "CarsNet_Internal_Modul";
-const char* pass = "AdminCars123Esp32";
-const int pinRelais = 5; // Ton relais sur GPIO 5
+const char* ssid = "CarsNet_Internal";
+const char* pass = "AdminCars123";
+const int pinRelais = 27; // Pin GPIO au choix sur ESP32 (ex: 27)
 
 Adafruit_ADS1115 ads;
-ESP8266WebServer server(80);
-WiFiClient wifiClient;
+WebServer server(80);
+// Pas besoin de WiFiClient explicite pour HTTPClient sur ESP32
 
 int etatChauffageGaz = 0;
 int dernierEtatFlamme = -1;
@@ -26,53 +26,46 @@ void addToLog(String msg) {
 // --- LOGIQUE THERMOCOUPLE ---
 int detecterFlamme() {
     int16_t results = ads.readADC_SingleEnded(0);
-    float mv = ads.computeVolts(results) * 1000; // Conversion en millivolts
-
-    // Un thermocouple produit ~10-25mV en fonctionnement.
-    // On considère la flamme présente au dessus de 5mV.
+    float mv = ads.computeVolts(results) * 1000;
     return (mv > 5.0) ? 1 : 0;
 }
 
 // --- COMMUNICATION THERMOSTAT ---
 void syncThermostat() {
-    
-    String targetIP = "192.168.4.1";
+    // Sur ESP32, l'IP fixe du Thermostat/Routeur est 192.168.4.1
+    String targetIP = "192.168.4.1"; 
 
     HTTPClient http;
     
-    // 1. On récupère l'ordre de chauffage
-    http.begin(wifiClient, "http://" + targetIP + "/status");
+    // 1. RÉCUPÉRATION DES ORDRES
+    http.begin("http://" + targetIP + "/status");
     int httpCode = http.GET();
 
     if (httpCode == 200) {
         String payload = http.getString();
-        addToLog("Payload reçu : " + payload);
+        // Décommenter pour voir la chaîne brute dans les logs
+        // addToLog("Payload reçu : " + payload); 
+
         DynamicJsonDocument doc(1024);
         deserializeJson(doc, payload);
         
-        // CORRECTION : On utilise la clé exacte retournée par le thermostat
-        // D'après ta chaîne : {"chauffepetrole": 0, "chauffegaz": 1, ...}
         if (doc.containsKey("chauffegaz")) {
             int ordre = doc["chauffegaz"].as<int>(); 
-            
             if (ordre != etatChauffageGaz) {
                 etatChauffageGaz = ordre;
-                
-                // Sur ton module ESP8266 Relay X1 : 
-                // HIGH = Relais collé (ON), LOW = Relais repos (OFF)
+                // Vérifie si ton relais ESP32 est Active High ou Low
                 digitalWrite(pinRelais, (etatChauffageGaz == 1) ? HIGH : LOW);
-                
-                addToLog("Ordre reçu : " + String(etatChauffageGaz ? "DEMARRAGE" : "ARRET"));
+                addToLog("Relais GAZ -> " + String(etatChauffageGaz ? "ON" : "OFF"));
             }
         }
     } else {
-        addToLog("Erreur HTTP : " + String(httpCode));
+        addToLog("Erreur Thermostat (192.168.4.1) : " + String(httpCode));
     }
 
-    // 2. On envoie l'état de la flamme (Thermocouple)
+    // 2. ENVOI DU STATUT FLAMME
     int flammeActuelle = detecterFlamme();
     if (flammeActuelle != dernierEtatFlamme) {
-        http.begin(wifiClient, "http://" + targetIP + "/updateflamme?val=" + String(flammeActuelle));
+        http.begin("http://" + targetIP + "/updatechauffagegaz?val=" + String(flammeActuelle));
         if (http.GET() == 200) {
             dernierEtatFlamme = flammeActuelle;
             addToLog("🔥 Statut Flamme envoyé : " + String(flammeActuelle));
@@ -86,28 +79,33 @@ void setup() {
     pinMode(pinRelais, OUTPUT);
     digitalWrite(pinRelais, LOW);
 
-    // Initialisation I2C sur SDA=4, SCL=5
-    Wire.begin(4, 5);
+    // Initialisation I2C sur ESP32 (SDA=21, SCL=22 par défaut)
+    Wire.begin(21, 22);
     
     if (!ads.begin()) {
         addToLog("Erreur: ADS1115 non trouvé !");
     }
-    // Gain maximum pour capter les millivolts du thermocouple
     ads.setGain(GAIN_SIXTEEN); 
 
     WiFi.begin(ssid, pass);
-    while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
 
-    MDNS.begin("modul-chauffagegaz");
+    if (MDNS.begin("modul-chauffagegaz")) {
+        addToLog("mDNS Responder démarré");
+    }
+
     server.begin();
-    addToLog("Modul Gaz prêt sur IP: " + WiFi.localIP().toString());
+    addToLog("Modul Gaz ESP32 prêt sur IP: " + WiFi.localIP().toString());
 }
 
 void loop() {
     server.handleClient();
-    MDNS.update();
+    // Sur ESP32, MDNS.update() n'est pas nécessaire (géré par tâche de fond)
 
-    if (millis() - lastSync > 5000) { // Sync toutes les 5 secondes
+    if (millis() - lastSync > 5000) {
         syncThermostat();
         lastSync = millis();
     }
