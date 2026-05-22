@@ -5,12 +5,13 @@ Thermostat :
 - 1 interrupteur avec led
 
 Chauffage péttrole :
-- Carte de développement Wifi Bluetooth ESP32-32E, Module de commutation 2 MOS ou 2 relais DC 5-60V
+- Carte de développement Wifi Bluetooth ESP32-32E, Module de commutation 2 MOS 12v
+- Module ADS1115 16 bits ADC
 
 Chauffage Gaz :
-- Carte de développement Wifi Bluetooth ESP32-32E, Module de commutation 2 MOS ou 2 relais DC 5-60V
+- Carte de développement Wifi Bluetooth ESP32-32E, Module de commutation 2 MOS 12v
 - Module ADS1115 16 bits ADC
-- Électrovanne électrique pneumatique 12V
+- Électrovanne électrique pneumatique 12V compatible gaz
 
 Jauges :
 - 1 ESP32 CH340C 30P TYPE C + Epansion Board 30P
