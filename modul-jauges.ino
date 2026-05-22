@@ -5,10 +5,11 @@
 #include "ESPTelnet.h"
 #include "HX711.h"
 #include <Preferences.h>
+#include <ArduinoOTA.h>
+#include "WebServer.h"
 
-// --- CONFIGURATION RÉSEAU ---
-const char* ssid = "CarsNet_Internal_Modul";
-const char* pass = "AdminCars123Esp32"; 
+WebServer server(80);
+ESPTelnet telnet;
 
 // --- CONFIGURATION PINS ---
 const int pinVoltage = 34;
@@ -22,21 +23,24 @@ const int LOADCELL_SCK_PIN = 4;
 // --- OBJETS ---
 HX711 scale;
 Preferences preferences;
-ESPTelnet telnet;
 
 // --- VARIABLES ---
 unsigned long lastUpdate = 0;
 const float vRef = 3.3;
 float calibrationScale = 31.9; 
+String ota_pass = "dyqpa8we";
 
 // Variables de bouteille (en grammes pour plus de précision avec HX711)
 float pVide = 13000.0;  // Par défaut 13kg
 float pPlein = 26000.0; // Par défaut 26kg (13kg gaz)
+String ssid, pass;
 
 void addToLog(String msg) {
   String entry = "[" + String(millis() / 1000) + "s] " + msg;
   Serial.println(entry);
-  if (telnet.isConnected()) telnet.println(entry);
+  if (telnet.isConnected()) { 
+    telnet.println(entry); 
+  }
 }
 
 // --- LOGIQUE TENSION ---
@@ -133,6 +137,7 @@ void echangerDonnees() {
 
 void setup() {
   Serial.begin(115200);
+
   pinMode(pinPniv1, INPUT_PULLUP);
   pinMode(pinPniv2, INPUT_PULLUP);
   pinMode(pinPniv3, INPUT_PULLUP);
@@ -149,19 +154,96 @@ void setup() {
   
   scale.set_scale(calibrationScale);
 
-  WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  ssid = "CarsNet_Internal";
+  pass = "AdminCars123";
+
+  WiFi.setHostname("MODUL-JAUGES");
+  WiFi.begin(ssid.c_str(), pass.c_str());
+ while (WiFi.status() != WL_CONNECTED ) {
+    delay(500);
+    Serial.print(".");
+  }
   
-  MDNS.begin("modul-jauges");
   telnet.begin();
+  telnet.onConnect([](String ip) {
+    addToLog("\nBienvenue sur le Modul-Jauges !");
+  });
+
+  // 3. MDNS
+  if (MDNS.begin("modul-jauges")) {
+    MDNS.addService("http", "tcp", 80);
+  }
   
+  // 4. OTA Android / ArduinoOTA avec password
+  ArduinoOTA.setHostname("modul-jauges");
+  ArduinoOTA.setPassword(ota_pass.c_str());
+
+  ArduinoOTA.onStart([]() {
+    addToLog("OTA START");
+  });
+
+  ArduinoOTA.onEnd([]() {
+    addToLog("OTA END");
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("OTA Progress: %u%%\r", (progress * 100) / total);
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+    addToLog("OTA ERROR : " + String((int)error));
+  });
+
+  ArduinoOTA.begin();
+
+  server.on("/", handleRoot);
+  server.begin();
+
   addToLog("Modul-Jauges Synchro. IP: " + WiFi.localIP().toString());
 }
 
 void loop() {
+  // 1. Gérer les services (Priorité haute)
+  ArduinoOTA.handle();
   telnet.loop();
-  if (WiFi.status() == WL_CONNECTED && millis() - lastUpdate > 10000) {
-    echangerDonnees(); // Remplace envoyerDonnees
+  server.handleClient(); // INDISPENSABLE pour le HTTP
+  
+  // 2. Gestion de la reconnexion automatique
+  if (WiFi.status() != WL_CONNECTED) {
+    static unsigned long lastReconnectAttempt = 0;
+    if (millis() - lastReconnectAttempt > 10000) { // Tentative toutes les 10s
+      addToLog("WiFi perdu, reconnexion...");
+      WiFi.reconnect();
+      lastReconnectAttempt = millis();
+    }
+    return; // On ne fait pas le reste si pas de WiFi
+  }
+
+  // 3. Échange de données (Non-bloquant pour le reste)
+  if (millis() - lastUpdate > 10000) {
+    echangerDonnees();
     lastUpdate = millis();
   }
+}
+
+void handleRoot() {
+  float volt = lireVoltage();
+  int petrole = lireNiveauPetrole();
+  int gaz = lireNiveauGaz();
+  String html = "<html><head><meta charset='UTF-8' name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<style>body{background:#121212; color:#eee; font-family:sans-serif; margin:0; padding-bottom:80px;} ";
+  html += ".nav{display:flex; justify-content:space-around; background:#1e1e1e; padding:15px; position:fixed; bottom:0; width:100%; border-top:1px solid #333;} ";
+  html += ".nav a{color:#888; text-decoration:none; font-size:0.8em; font-weight:bold;} .page{display:none; padding:20px;} .page.active{display:block;} ";
+  html += ".card{background:#1e1e1e; padding:15px; border-radius:10px; margin-bottom:15px; border:1px solid #333; border-left:4px solid #2196f3;} ";
+  html += "input,select,button{display:block; width:100%; margin:10px 0; padding:12px; border-radius:5px; border:none; background:#222; color:white;} ";
+  html += "button{background:#2196f3; font-weight:bold;} .status{display:inline-block; width:12px; height:12px; border-radius:50%; margin:0px 8px;} ";
+  html += ".on{background:#2ecc71;} .off{background:#e74c3c;}</style></head><body>";
+
+html += "<div id='p-dash' class='page active'><h1>Caravane Dashboard</h1>";
+
+  html += "<div class='card'><b>Gazole :</b> " + String(petrole) + "/4</div>";
+  html += "<div class='card'><b>Gaz :</b> " + String(gaz) + "%</div>";
+  html += "<div class='card'><b>Volt :</b> " + String(volt) + "V</div>";
+  html += "</div>";
+server.send(200, "text/html", html);
 }
